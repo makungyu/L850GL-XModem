@@ -1,6 +1,6 @@
 # L850GL-Xmodem
 
-A specialized fork of [XModem](https://github.com/FUjr/XModem) trimmed to support **only the Fibocom L850-GL (Intel XMM7360)** modem, in **NCM** and **MBIM** modes, with integrated **eSIM (lpac)** management.
+A specialized fork of [QModem](https://github.com/FUjr/QModem) trimmed to support **only the Fibocom L850-GL (Intel XMM7360)** modem, in **NCM** and **MBIM** modes, with integrated **eSIM (lpac)** management.
 
 All logic, files and packages for other modems have been removed; the shared XModem framework (dial / scan / LuCI `luci-app-xmodem-next`) is kept intact.
 
