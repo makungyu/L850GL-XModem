@@ -164,9 +164,6 @@ send_telegram_config() {
 	poll_interval="$(uci -q get "$UCI_TG.main.poll_interval" || echo 2)"
 	allow_disruptive="$(uci -q get "$UCI_TG.main.allow_disruptive" || echo 1)"
 	require_confirm="$(uci -q get "$UCI_TG.main.require_confirm" || echo 1)"
-	if [ -n "$token" ] && [ "${#token}" -gt 12 ]; then
-		token="$(printf '%s' "$token" | sed 's/^\(.\{8\}\).*\(.\{4\}\)$/\1...\2/')"
-	fi
 	cat <<JSON
 {"config":{"enabled":"$(json_escape "$enabled")","token":"$(json_escape "$token")","chat_id":"$(json_escape "$chat_id")","poll_interval":"$(json_escape "$poll_interval")","allow_disruptive":"$(json_escape "$allow_disruptive")","require_confirm":"$(json_escape "$require_confirm")"}}
 JSON
@@ -207,10 +204,7 @@ save_telegram_config() {
 	fi
 	uci -q set "$UCI_TG.main=bot"
 	uci -q set "$UCI_TG.main.enabled=$TG_enabled"
-	case "$TG_token" in
-		????????...*) ;;
-		*) [ -n "$TG_token" ] && uci -q set "$UCI_TG.main.token=$TG_token" ;;
-	esac
+	[ -n "$TG_token" ] && uci -q set "$UCI_TG.main.token=$TG_token"
 	[ -n "$TG_chat_id" ] && uci -q set "$UCI_TG.main.chat_id=$TG_chat_id"
 	[ -n "$TG_poll_interval" ] && uci -q set "$UCI_TG.main.poll_interval=$TG_poll_interval"
 	[ -n "$TG_allow_disruptive" ] && uci -q set "$UCI_TG.main.allow_disruptive=$TG_allow_disruptive"
