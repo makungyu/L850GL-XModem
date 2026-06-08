@@ -29,24 +29,20 @@ function handleQRFile(input) {
 function decodeQRCode() {
     if (!uploadedFile) return;
 
-    document.getElementById('qr-decode-loading').style.display = 'block';
     hideDecodeStatus();
+    document.getElementById('qr-decode-loading').style.display = 'block';
+
+    if (typeof jsQR !== 'function') {
+        document.getElementById('qr-decode-loading').style.display = 'none';
+        showDecodeError('QR decoder library is not loaded. Please refresh the page and try again.');
+        return;
+    }
 
     var reader = new FileReader();
     reader.onload = function(e) {
         var img = new Image();
         img.onload = function() {
-            var canvas = document.createElement('canvas');
-            var ctx = canvas.getContext('2d');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
-            var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-            var code = null;
-            if (typeof jsQR === 'function') {
-                code = jsQR(imageData.data, imageData.width, imageData.height);
-            }
+            var code = decodeImageWithJsQR(img);
 
             document.getElementById('qr-decode-loading').style.display = 'none';
 
@@ -71,6 +67,58 @@ function decodeQRCode() {
         img.src = e.target.result;
     };
     reader.readAsDataURL(uploadedFile);
+}
+
+function decodeImageWithJsQR(img) {
+    var attempts = [
+        { maxSide: 1600, margin: 0, grayscale: false },
+        { maxSide: 1200, margin: 0, grayscale: true },
+        { maxSide: 900, margin: 24, grayscale: false },
+        { maxSide: 700, margin: 48, grayscale: true }
+    ];
+
+    for (var i = 0; i < attempts.length; i++) {
+        var imageData = renderQRImageData(img, attempts[i]);
+        var code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: 'attemptBoth'
+        });
+
+        if (code && code.data)
+            return code;
+    }
+
+    return null;
+}
+
+function renderQRImageData(img, opts) {
+    var scale = Math.min(1, opts.maxSide / Math.max(img.width, img.height));
+    var width = Math.max(1, Math.round(img.width * scale));
+    var height = Math.max(1, Math.round(img.height * scale));
+    var margin = opts.margin || 0;
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d');
+
+    canvas.width = width + margin * 2;
+    canvas.height = height + margin * 2;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, margin, margin, width, height);
+
+    var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (opts.grayscale)
+        boostQRContrast(imageData.data);
+
+    return imageData;
+}
+
+function boostQRContrast(data) {
+    for (var i = 0; i < data.length; i += 4) {
+        var gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        var value = gray > 140 ? 255 : 0;
+        data[i] = value;
+        data[i + 1] = value;
+        data[i + 2] = value;
+    }
 }
 
 function validateLPA(s) {

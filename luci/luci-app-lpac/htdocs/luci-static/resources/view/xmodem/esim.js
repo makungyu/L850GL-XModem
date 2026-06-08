@@ -239,6 +239,7 @@ function loadEsimModules() {
 
 	// Load each module in order, then initialize the active tab.
 	var scripts = [
+		'lpac-esim/js/jsQR.js',
 		'lpac-esim/js/lpac-esim-info.js',
 		'lpac-esim/js/lpac-esim-profiles.js',
 		'lpac-esim/js/lpac-esim-download.js',
