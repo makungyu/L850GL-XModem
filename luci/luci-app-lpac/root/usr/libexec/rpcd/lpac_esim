@@ -161,7 +161,7 @@ send_telegram_config() {
 	enabled="$(uci -q get "$UCI_TG.main.enabled" || echo 0)"
 	token="$(uci -q get "$UCI_TG.main.token" || echo '')"
 	chat_id="$(uci -q get "$UCI_TG.main.chat_id" || echo '')"
-	poll_interval="$(uci -q get "$UCI_TG.main.poll_interval" || echo 2)"
+	poll_interval="$(uci -q get "$UCI_TG.main.poll_interval" || echo 1)"
 	allow_disruptive="$(uci -q get "$UCI_TG.main.allow_disruptive" || echo 1)"
 	require_confirm="$(uci -q get "$UCI_TG.main.require_confirm" || echo 1)"
 	cat <<JSON

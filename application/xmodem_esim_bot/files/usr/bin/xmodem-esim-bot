@@ -57,7 +57,7 @@ function load_config() {
 	config.enabled = (get("enabled", "0") == "1");
 	config.token = get("token", "");
 	config.chat_id = `${get("chat_id", "")}`;
-	config.poll_interval = safe_int(get("poll_interval", "0"), 0);
+	config.poll_interval = safe_int(get("poll_interval", "1"), 1);
 	config.allow_disruptive = (get("allow_disruptive", "1") == "1");
 	config.require_confirm = (get("require_confirm", "1") == "1");
 	config.debug = (get("debug", "0") == "1");
