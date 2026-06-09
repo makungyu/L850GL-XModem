@@ -189,6 +189,17 @@ function ui_eid(msg_id) {
 
 function profile_name(p) { return p.profileNickname || p.profileName || p.serviceProviderName || "Unknown"; }
 function profile_active(p) { return p.profileState == "enabled" || p.state == "enabled"; }
+function profile_delete_confirm_text(iccid) {
+	let p = find_profile(iccid);
+	if (!p) return `🗑 <b>Delete Profile?</b>\n\n<b>ICCID:</b> <code>${html(iccid)}</code>\n\nProfile akan dihapus permanen.`;
+
+	let nickname = p.profileNickname || "-";
+	let name = p.profileName || "-";
+	let provider = p.serviceProviderName || p.serviceProvider || "-";
+	let state = p.profileState || p.state || "-";
+
+	return `🗑 <b>Delete Profile?</b>\n\n<b>Nickname:</b> ${html(nickname)}\n<b>Profile:</b> ${html(name)}\n<b>Provider:</b> ${html(provider)}\n<b>ICCID:</b> <code>${html(iccid)}</code>\n<b>Status:</b> ${html(state)}\n\nProfile akan dihapus permanen.`;
+}
 function ui_profiles(msg_id) {
 	msg_id = update_ui(msg_id, "⏳");
 	let res = lpac_api("profiles");
@@ -466,15 +477,12 @@ Internet reconnected.`, [[{text: "📋 Profile List", callback_data: "menu:profi
 Error: ${html(parsed.error || "Unknown")}`, [[{text: "📋 Profile List", callback_data: "menu:profiles"}], [{text: "🏠 Menu", callback_data: "menu:main"}]]);
 }
 function do_delete(iccid) {
-	if (!config.allow_disruptive) return tg_send("⛔ Operasi delete dinonaktifkan.");
-	let section = get_modem_section();
 	tg_send("⏳");
-	let result = section ? sys(`/usr/share/xmodem/esim_ctrl.sh profile_delete ${sh_quote(section)} ${sh_quote(sprintf("%J", {iccid: iccid}))} 2>/dev/null`) : '{"result":{"status":"0","error":"no modem section"}}';
-	let parsed = esim_ctrl_result(result);
-	if (parsed.ok)
+	let r = lpac_api("delete", {iccid: iccid});
+	if (r.success || r.msg == "success")
 		tg_send("✅ Profile deleted.", {inline_keyboard: [[{text: "📋 Profile List", callback_data: "menu:profiles"}], [{text: "🏠 Menu", callback_data: "menu:main"}]]});
 	else
-		tg_send(`❌ Delete failed: ${html(parsed.error || "Unknown")}`, {inline_keyboard: INLINE_MENU});
+		tg_send(`❌ Delete failed: ${html(r.error || r.msg || "Unknown")}`, {inline_keyboard: INLINE_MENU});
 }
 function do_download(lpa) {
 	tg_send("⏳");
@@ -592,7 +600,7 @@ function handle_callback(cb, data, chat_id, msg_id) {
 	if (c == "ren") { set_pending("rename", s); return update_ui(msg_id, `✏️ <b>Rename Profile</b>\nICCID: <code>${html(s)}</code>\n\nKirim nama baru 1–64 karakter.`, {inline_keyboard: [[{text: "❌ Cancel", callback_data: "cancel"}]]}); }
 	if (c == "simslot") return require_confirm("simslot", s, `⚠️ Switch SIM slot ke <b>${html(s)}</b>?`, "✅ Yes, Switch");
 	if (c == "sw") return require_confirm("switch", s, `⚠️ Switch ke <code>${html(s)}</code>?`, "✅ Yes, Switch");
-	if (c == "del") return require_confirm("delete", s, `🗑 Delete <code>${html(s)}</code>?`, "🗑 Yes, Delete");
+	if (c == "del") return require_confirm("delete", s, profile_delete_confirm_text(s), "🗑 Yes, Delete");
 	if (c == "cfg") {
 		if (s == "backend" && (a == "qmi" || a == "mbim" || a == "at")) { uci_set("lpac-esim.main.apdu_backend", a); sys_exec("uci -q commit lpac-esim"); return ui_settings(msg_id); }
 		if (s == "toggle" && (a == "mbim_proxy" || a == "skip_slot_mapping" || a == "apdu_debug")) { let cur = uci_get(`lpac-esim.main.${a}`, "0"); uci_set(`lpac-esim.main.${a}`, cur == "1" ? "0" : "1"); sys_exec("uci -q commit lpac-esim"); return ui_settings(msg_id); }
@@ -632,7 +640,7 @@ function handle_message(chat_id, text) {
 	if (match(text, /^\/download\s+/)) { let lpa = replace(text, /^\/download\s+/, ""); if (!is_lpa(lpa)) return tg_send("⚠️ Format: /download LPA:1$server$matchingId"); return require_confirm("download", lpa, "📥 Download ini?", "✅ Ya"); }
 	if (match(text, /^\/(enable|switch)\s+/)) { let iccid = replace(text, /^\/(enable|switch)\s+/, ""); return require_confirm("switch", iccid, `⚠️ Switch ke <code>${html(iccid)}</code>?`, "✅ Ya"); }
 	if (text == "/enable" || text == "/switch") return tg_send("⚠️ Format: /enable &lt;ICCID&gt;");
-	if (match(text, /^\/delete\s+/)) { let iccid = replace(text, /^\/delete\s+/, ""); return require_confirm("delete", iccid, `🗑 Delete <code>${html(iccid)}</code>?`, "🗑 Ya"); }
+	if (match(text, /^\/delete\s+/)) { let iccid = replace(text, /^\/delete\s+/, ""); return require_confirm("delete", iccid, profile_delete_confirm_text(iccid), "🗑 Ya"); }
 	if (text == "/delete") return tg_send("⚠️ Format: /delete &lt;ICCID&gt;");
 	return send_main_menu();
 }

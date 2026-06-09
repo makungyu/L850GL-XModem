@@ -6,7 +6,7 @@
       "ubus": {
         "lpac_esim": [
           "chip", "profiles", "modem_status", "notif_list",
-          "lock_status", "version", "config", "telegram_config",
+          "lock_status", "dial_state", "version", "config", "telegram_config",
           "telegram_status", "connectivity"
         ]
       },

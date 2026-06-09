@@ -4,6 +4,9 @@
 'require dom';
 'require request';
 'require rpc';
+'require poll';
+
+var DIAL_STATE_POLL_INTERVAL = 10;
 
 /*
  * XModem Next - eSIM Manager View
@@ -24,9 +27,9 @@ return view.extend({
 			' ',
 			E('span', {
 				'id': 'esim-connectivity-status',
-				'title': _('Checking internet connection...'),
-				'style': 'font-size: 18px; vertical-align: middle;'
-			}, '🟡')
+				'title': _('Checking dial status...'),
+				'style': 'display: inline-block; width: 12px; height: 12px; border-radius: 50%; background-color: #999; vertical-align: middle;'
+			}, '')
 		]));
 		container.appendChild(E('div', { 'class': 'cbi-map-descr' },
 			[ _('Manage eSIM profiles via lpac. Supports profile list, switch, download, and delete.'), ' ', E('span', { 'id': 'esim-app-version' }, '') ]));
@@ -252,7 +255,7 @@ function loadEsimModules() {
 
 	loadScriptsSequentially(scripts, function() {
 		loadEsimTab('info-tab');
-		checkConnectivity();
+		startDialStatePolling();
 	});
 }
 
@@ -340,27 +343,49 @@ function checkConnectivity() {
 	var status = document.getElementById('esim-connectivity-status');
 
 	if (status) {
-		status.textContent = '🟡';
-		status.title = _('Checking internet connection...');
+		status.style.backgroundColor = '#999';
+		status.title = _('Checking dial status...');
 	}
 
-	window.apiGet('connectivity')
+	return window.apiGet('dial_state')
 		.then(function(data) {
-			// Handle response formats from rpcd or lpac-esim
-			var isOnline = false;
-			if (data && data.connected) isOnline = true;
-			if (data && data.success && data.connected) isOnline = true;
-			if (data && data.payload && data.payload.data && data.payload.data.online) isOnline = true;
+			var state = data && data.state ? data.state : 'unknown';
+			var color = '#999';
+			var title = _('Dial status unknown');
+
+			if (state === 'connected') {
+				color = '#00FF00';
+				title = _('Dial connected');
+			} else if (state === 'disconnected') {
+				color = '#FF0000';
+				title = _('Dial disconnected');
+			} else if (state === 'recovering') {
+				color = '#FFA500';
+				title = _('Dial recovering');
+			}
+
+			if (data && data.message)
+				title += ': ' + data.message;
 
 			if (status) {
-				status.textContent = isOnline ? '🟢' : '🔴';
-				status.title = isOnline ? _('Internet connected') : _('Internet disconnected');
+				status.style.backgroundColor = color;
+				status.title = title;
 			}
 		})
 		.catch(function() {
 			if (status) {
-				status.textContent = '🔴';
-				status.title = _('Internet disconnected');
+				status.style.backgroundColor = '#FFA500';
+				status.title = _('Dial status unavailable');
 			}
 		});
+}
+
+function startDialStatePolling() {
+	checkConnectivity();
+	poll.add(function() {
+		if (document.hidden)
+			return Promise.resolve();
+
+		return checkConnectivity();
+	}, DIAL_STATE_POLL_INTERVAL);
 }

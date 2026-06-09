@@ -218,10 +218,38 @@ connectivity() {
 	ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo '{"success":true,"connected":true}' || echo '{"success":true,"connected":false}'
 }
 
+dial_state() {
+	local section log_file line state color message
+
+	section="$(uci -q show xmodem 2>/dev/null | sed -n 's/^xmodem\.\([^=]*\)=modem-device/\1/p' | head -n 1)"
+	[ -n "$section" ] || { echo '{"success":true,"state":"unknown","color":"grey","message":"No modem section found"}'; return; }
+
+	log_file="/var/run/xmodem/${section}_dir/dial_log"
+	[ -r "$log_file" ] || { echo "{\"success\":true,\"section\":\"$(json_escape "$section")\",\"state\":\"unknown\",\"color\":\"grey\",\"message\":\"Dial log not available\"}"; return; }
+
+	line="$(tail -n 80 "$log_file" 2>/dev/null | grep -E 'mbim ip |qmi ip |wwan ip |MBIM session down|recovering|Preparing modem|Connecting via|Stopping .*connection|Interface removed|dial failed|failed|FAIL' | tail -n 1)"
+	[ -n "$line" ] || line="$(tail -n 1 "$log_file" 2>/dev/null)"
+
+	state="unknown"
+	color="grey"
+	message="$line"
+
+	case "$line" in
+		*"mbim ip "*" gw "*|*"qmi ip "*" gw "*|*"wwan ip "*" gw "*)
+			state="connected"; color="green" ;;
+		*"MBIM session down"*|*"recovering"*|*"Preparing modem"*|*"Connecting via"*)
+			state="recovering"; color="yellow" ;;
+		*"Stopping "*"connection"*|*"Interface removed"*|*"dial failed"*|*"failed"*|*"FAIL"*)
+			state="disconnected"; color="red" ;;
+	esac
+
+	echo "{\"success\":true,\"section\":\"$(json_escape "$section")\",\"state\":\"$state\",\"color\":\"$color\",\"message\":\"$(json_escape "$message")\"}"
+}
+
 case "$1" in
 	list)
 		cat <<'JSON'
-{"chip":{},"profiles":{},"modem_status":{},"notif_list":{},"lock_status":{},"switch":{"iccid":"string"},"reboot_modem":{},"notif_clear":{},"download":{"lpa":"string","smdp":"string","matching_id":"string","confirmation":"string"},"delete":{"iccid":"string"},"nickname":{"iccid":"string","nickname":"string"},"notif_process":{},"version":{},"config":{},"save_config":{"config":"string"},"telegram_config":{},"telegram_status":{},"save_telegram_config":{"enabled":"string","token":"string","chat_id":"string","poll_interval":"string","allow_disruptive":"string","require_confirm":"string"},"test_telegram":{"token":"string","chat_id":"string"},"telegram_toggle":{"action":"string"},"connectivity":{}}
+{"chip":{},"profiles":{},"modem_status":{},"notif_list":{},"lock_status":{},"dial_state":{},"switch":{"iccid":"string"},"reboot_modem":{},"notif_clear":{},"download":{"lpa":"string","smdp":"string","matching_id":"string","confirmation":"string"},"delete":{"iccid":"string"},"nickname":{"iccid":"string","nickname":"string"},"notif_process":{},"version":{},"config":{},"save_config":{"config":"string"},"telegram_config":{},"telegram_status":{},"save_telegram_config":{"enabled":"string","token":"string","chat_id":"string","poll_interval":"string","allow_disruptive":"string","require_confirm":"string"},"test_telegram":{"token":"string","chat_id":"string"},"telegram_toggle":{"action":"string"},"connectivity":{}}
 JSON
 		;;
 	call)
@@ -256,6 +284,7 @@ JSON
 				echo "$result" | grep -q '"ok":true' && echo '{"success":true}' || send_error "$(echo "$result" | sed 's/"/\\"/g')"
 				;;
 			telegram_toggle) read_input; json_get_var action action; [ "$action" = start ] && /etc/init.d/xmodem_esim_bot start >/dev/null 2>&1 || /etc/init.d/xmodem_esim_bot stop >/dev/null 2>&1; echo '{"success":true}' ;;
+			dial_state) dial_state ;;
 			connectivity) connectivity ;;
 			*) send_error "Unknown method" ;;
 		esac
