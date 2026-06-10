@@ -154,6 +154,19 @@ static int sl_add(struct str_list *l, const char *s)
 	return 0;
 }
 
+static int sl_cmp(const void *a, const void *b)
+{
+	const char * const *sa = a;
+	const char * const *sb = b;
+	return strcmp(*sa, *sb);
+}
+
+static void sl_sort(struct str_list *l)
+{
+	if (l->len > 1)
+		qsort(l->items, l->len, sizeof(*l->items), sl_cmp);
+}
+
 static void sl_truncate(struct str_list *l, size_t len)
 {
 	if (len >= l->len)
@@ -1043,6 +1056,9 @@ static int add_modem(const char *slot, const char *slot_type)
 	} else {
 		goto out_fail;
 	}
+	sl_sort(&res.net_devices);
+	sl_sort(&res.at_ports);
+	sl_sort(&res.pcie_at_ports);
 
 	if (!res.net_devices.len) {
 		log_msg(LOG_L_INFO, "slot=%s type=%s has no net device yet", slot, slot_type);

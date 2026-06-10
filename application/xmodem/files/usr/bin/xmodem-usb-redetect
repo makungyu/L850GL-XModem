@@ -6,6 +6,19 @@
 VIDS="2cb7 8087"        # L850-GL: 2cb7 (MBIM mode), 8087 (NCM mode)
 SLEEP=15
 DEBOUNCE=4              # absent for ~DEBOUNCE*SLEEP s before rebinding
+SUPPORTED_TARGETS="ipq40xx ipq806x"
+
+supported_platform(){
+    local target board family
+    board=$(board_name 2>/dev/null || true)
+    target=$(. /etc/openwrt_release 2>/dev/null; echo "$DISTRIB_TARGET")
+    family=${target%%/*}
+    for supported in $SUPPORTED_TARGETS; do
+        [ "$family" = "$supported" ] && return 0
+    done
+    logger -t xmodem-usbwd "unsupported platform target=${target:-unknown} board=${board:-unknown}, watchdog idle"
+    return 1
+}
 
 modem_expected(){ uci -q show xmodem 2>/dev/null | grep -q '\.manufacturer='; }
 present(){
@@ -30,8 +43,9 @@ rebind(){
     done
     present
 }
+supported_platform || exit 0
 [ "$1" = "once" ] && { rebind && echo "re-detected" || echo "failed"; exit $?; }
-# service mode: only meaningful on dwc3-based SoCs (ipq40xx/ipq806x/...)
+# service mode: only meaningful on supported dwc3-based SoCs.
 ls /sys/bus/platform/drivers/dwc3*/*.usb >/dev/null 2>&1 || { logger -t xmodem-usbwd "no dwc3 controller, watchdog idle"; exit 0; }
 miss=0
 while true; do

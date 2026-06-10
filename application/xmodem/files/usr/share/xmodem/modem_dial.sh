@@ -568,6 +568,17 @@ check_ip()
                 connection_status=3
             fi
         else
+            if [ "$driver" = "ncm" ] && [ "$manufacturer" = "fibocom" ] && [ "$platform" = "intel" ] && [ -n "$modem_netcard" ]; then
+                ipv4=$(ip -4 addr show dev "$modem_netcard" 2>/dev/null | grep -oE 'inet [0-9.]+/[0-9]+' | awk '{print $2}' | cut -d/ -f1 | head -1)
+                ipv6=$(ip -6 addr show dev "$modem_netcard" 2>/dev/null | grep -oE 'inet6 [0-9a-fA-F:]+/[0-9]+' | awk '{print $2}' | cut -d/ -f1 | grep -v '^fe80:' | head -1)
+                if [ -n "$ipv4" ] || [ -n "$ipv6" ]; then
+                    connection_status=0
+                    [ -n "$ipv4" ] && connection_status=1
+                    [ -n "$ipv6" ] && connection_status=2
+                    [ -n "$ipv4" ] && [ -n "$ipv6" ] && connection_status=3
+                    return
+                fi
+            fi
             connection_status="-1"
             m_debug "AT port returned an unexpected IP response: $ipaddr"
         fi
@@ -1559,16 +1570,48 @@ ip_change_l850()
     m_debug "Refreshing IP (${refresh_mode})"
     local public_dns1_ipv4="223.5.5.5"
     local public_dns2_ipv4="119.29.29.29"
-    local rdp v4addr v4prefix v4gw v4dns1 v4dns2 sc
+    local rdp v4addr v4prefix v4gw v4dns1 v4dns2 sc i
     # +CGCONTRDP: <cid>,<bid>,<apn>,<local_addr.mask>,<gw>,<dns1>,<dns2>,...
-    rdp=$(at ${at_port} "AT+CGCONTRDP=$pdp_index" | grep "+CGCONTRDP:" | head -1 | sed 's/\r//g')
-    v4addr=$(echo "$rdp" | awk -F, '{print $4}' | sed 's/"//g' | awk -F. '{print $1"."$2"."$3"."$4}')
+    # Some USB hosts expose the L850 data session a few seconds before CGCONTRDP is
+    # ready. Retry so first bring-up does not cache the new IP without applying it.
+    for i in 1 2 3 4 5; do
+        rdp=$(at ${at_port} "AT+CGCONTRDP=$pdp_index" | grep "+CGCONTRDP:" | head -1 | sed 's/\r//g')
+        v4addr=$(echo "$rdp" | awk -F, '{print $4}' | sed 's/"//g' | awk -F. '{print $1"."$2"."$3"."$4}')
+        echo "$v4addr" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' && break
+        m_debug "CGCONTRDP not ready (${i}/5)"
+        sleep 2
+    done
+    if ! echo "$v4addr" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        local paddr last_octet peer_octet
+        v4addr="$ipv4"
+        if ! echo "$v4addr" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            paddr=$(at ${at_port} "AT+CGPADDR=$pdp_index" | grep "+CGPADDR:" | head -1 | sed 's/\r//g')
+            v4addr=$(echo "$paddr" | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | grep -v '^0\.0\.0\.0$' | head -1)
+        fi
+        if echo "$v4addr" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            last_octet=$(echo "$v4addr" | awk -F. '{print $4}')
+            if [ "$last_octet" -gt 0 ] && [ "$last_octet" -lt 255 ] 2>/dev/null; then
+                if [ $((last_octet % 2)) -eq 0 ]; then
+                    peer_octet=$((last_octet + 1))
+                else
+                    peer_octet=$((last_octet - 1))
+                fi
+                v4gw=$(echo "$v4addr" | awk -F. -v d="$peer_octet" '{print $1"."$2"."$3"."d}')
+                v4prefix=31
+                v4dns1="$public_dns1_ipv4"
+                v4dns2="$public_dns2_ipv4"
+                m_debug "CGCONTRDP unavailable; using CGPADDR fallback: $v4addr/$v4prefix via $v4gw"
+            fi
+        fi
+        echo "$v4addr" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || return 1
+    fi
     v4dns1=$(echo "$rdp" | awk -F, '{print $6}' | sed 's/"//g' | tr -d ' ')
     v4dns2=$(echo "$rdp" | awk -F, '{print $7}' | sed 's/"//g' | tr -d ' ')
-    echo "$v4addr" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || return
     # gateway: prefer real value from CGCONTRDP field 5 (verified on L850 live); else derive (mrhaav)
-    v4gw=$(echo "$rdp" | awk -F, '{print $5}' | sed 's/"//g' | tr -d ' ')
-    if echo "$v4gw" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' && [ "$v4gw" != "0.0.0.0" ]; then
+    [ -z "$v4gw" ] && v4gw=$(echo "$rdp" | awk -F, '{print $5}' | sed 's/"//g' | tr -d ' ')
+    if [ -n "$v4prefix" ] && echo "$v4gw" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        :
+    elif echo "$v4gw" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' && [ "$v4gw" != "0.0.0.0" ]; then
         # start at /31 (RFC3021 p2p pair) so an adjacent gw (e.g. .74/.75) is a
         # valid host, not the /30 broadcast (which makes netifd drop the default route)
         v4prefix=$(awk -v a="$v4addr" -v b="$v4gw" 'function i(s,A){split(s,A,".");return A[1]*16777216+A[2]*65536+A[3]*256+A[4]} BEGIN{x=i(a);y=i(b);for(p=31;p>=8;p--){d=2^(32-p);if(int(x/d)==int(y/d)){print p;exit}}print 31}')
@@ -1780,8 +1823,8 @@ at_dial_monitor()
     local unexpected_retry_limit=3
     local unexpected_retry_sleep=5
     if [ "$driver" = "ncm" ] && [ "$manufacturer" = "fibocom" ] && [ "$platform" = "intel" ]; then
-        unexpected_retry_limit=1
-        unexpected_retry_sleep=2
+        unexpected_retry_limit=3
+        unexpected_retry_sleep=5
     fi
     #check if support auto dial
     check_cfun
@@ -1844,11 +1887,17 @@ at_dial_monitor()
                 if [ "$ipv4" != "$ipv4_cache" ] || [ "$ipv6" != "$ipv6_cache" ]; then
                     if [ -z "$ipv4_cache" ] && [ -z "$ipv6_cache" ]; then
                         handle_ip_change force
+                        ip_change_status=$?
                     else
                         handle_ip_change
+                        ip_change_status=$?
                     fi
-                    ipv4_cache=$ipv4
-                    ipv6_cache=$ipv6
+                    if [ "$ip_change_status" -eq 0 ]; then
+                        ipv4_cache=$ipv4
+                        ipv6_cache=$ipv6
+                    else
+                        m_debug "IP refresh not ready; will retry"
+                    fi
                 fi
 
 
